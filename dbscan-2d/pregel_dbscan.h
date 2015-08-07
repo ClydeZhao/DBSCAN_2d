@@ -1,6 +1,7 @@
 #include "basic/pregel-dev.h"
 #include <math.h>
 #include <stdio.h>
+#include <map>
 #include <iostream>
 
 using namespace std;
@@ -30,25 +31,25 @@ int GRID_D2;
 
 
 
-enum MessageType
-{
-	REQ,
-	CELL,
-	MIN,
-	POINT
-};
+// enum MessageType
+// {
+// 	REQ,
+// 	CELL,
+// 	MIN,
+// 	POINT
+// };
 
-ibinstream & operator<<(ibinstream & m, const MessageType & eType)
-{
-	m << eType;
-	return m;
-}
+// ibinstream & operator<<(ibinstream & m, const MessageType & eType)
+// {
+// 	m << eType;
+// 	return m;
+// }
 
-obinstream & operator>>(obinstream & m, MessageType & eType)
-{
-	m >> eType;
-	return m;
-}
+// obinstream & operator>>(obinstream & m, MessageType & eType)
+// {
+// 	m >> eType;
+// 	return m;
+// }
 //=========================================================================
 
 struct Point
@@ -83,6 +84,7 @@ struct Cell
 	double dbd1;
 	double dbd2;
 	double dbLength;
+	// int iCellId;
 	int iClusterId;
 	bool bIsCore;
 	vector<int> vtAdjList;
@@ -95,6 +97,7 @@ ibinstream & operator<<(ibinstream & m, const Cell & stCell)
 	m << stCell.dbd2;
 	m << stCell.dbLength;
 	m << stCell.iClusterId;
+	// m << stCell.iCellId;
 	m << stCell.bIsCore;
 	m << stCell.vtAdjList;
 	m << stCell.vtDataPoints;
@@ -107,6 +110,7 @@ obinstream & operator>>(obinstream & m, Cell & stCell)
 	m >> stCell.dbd2;
 	m >> stCell.dbLength;
 	m >> stCell.iClusterId;
+	// m >> stCell.iCellId;
 	m >> stCell.bIsCore;
 	m >> stCell.vtAdjList;
 	m >> stCell.vtDataPoints;
@@ -116,7 +120,7 @@ obinstream & operator>>(obinstream & m, Cell & stCell)
 
 struct Message
 {
-	MessageType type;
+	// MessageType type;
 	int iSenderId;
 	Cell stCell;
 	Point stPoint;
@@ -124,7 +128,7 @@ struct Message
 
 ibinstream & operator<<(ibinstream & m, const Message & stM)
 {
-	m << stM.type;
+	// m << stM.type;
 	m << stM.iSenderId;
 	m << stM.stCell;
 	m << stM.stPoint;
@@ -133,7 +137,7 @@ ibinstream & operator<<(ibinstream & m, const Message & stM)
 
 obinstream & operator>>(obinstream & m, Message & stM)
 {
-	m >> stM.type;
+	// m >> stM.type;
 	m >> stM.iSenderId;
 	m >> stM.stCell;
 	m >> stM.stPoint;
@@ -152,7 +156,7 @@ private:
 	int hash_data_point(const Point stPnt, const Cell stCell)
 	{
 		double dbSubCellLength = stCell.dbLength / 2;
-		int iSeq = 1;
+		int iSeq = 0;
 		if (stPnt.id1 > stCell.dbd1 + dbSubCellLength)
 		{
 			iSeq += 1;
@@ -176,6 +180,7 @@ private:
 		{
 			Cell stSubCell;
 			stSubCell.dbLength = dbSubCellLength;
+
 			if (ii % 2 == 1)
 			{
 				stSubCell.dbd1 = stCell.dbd1;
@@ -185,7 +190,7 @@ private:
 				stSubCell.dbd1 = stCell.dbd1 + dbSubCellLength;
 			}
 
-			if (ii % 4 <= 2)
+			if (ii <= 2)
 			{
 				stSubCell.dbd2 = stCell.dbd2;
 			}
@@ -205,13 +210,13 @@ private:
 				if (vtDataPoints[ii].bIsCore)
 				{
 					int subCellNum = hash_data_point(vtDataPoints[ii], stCell);
-					vtSubCells[subCellNum-1].vtDataPoints.push_back(vtDataPoints[ii]);
+					vtSubCells[subCellNum].vtDataPoints.push_back(vtDataPoints[ii]);
 				}
 			}
 			else
 			{
 				int subCellNum = hash_data_point(vtDataPoints[ii], stCell);
-				vtSubCells[subCellNum-1].vtDataPoints.push_back(vtDataPoints[ii]);
+				vtSubCells[subCellNum].vtDataPoints.push_back(vtDataPoints[ii]);
 			}
 		}
 
@@ -220,7 +225,7 @@ private:
 
 
 public:
-	vector<TreeNode *> vtpChildren;
+	vector<TreeNode> vtChildren;
 
 	TreeNode();
 
@@ -254,9 +259,9 @@ public:
 			{
 				if (vtSubCells[ii].vtDataPoints.size() != 0)
 				{
-					TreeNode *pChild = new TreeNode(vtSubCells[ii]);
-					pParent->vtpChildren.push_back(pChild);
-					Build_tree(pChild, vtSubCells[ii], bCoreTree);
+					TreeNode Child(vtSubCells[ii]);
+					Build_tree(&Child, vtSubCells[ii], bCoreTree);
+					pParent->vtChildren.push_back(Child);
 				}
 			}
 		}
@@ -303,7 +308,7 @@ public:
 
 	bool Is_leaf() const
 	{
-		if (this->vtpChildren.size() == 0)
+		if (this->vtChildren.size() == 0)
 		{
 			return true;
 		}
@@ -331,7 +336,13 @@ public:
 
 class CellVertex: public Vertex<VertexID, Cell, Message>
 {
+typedef map<int, Cell> CellMap;
+typedef pair<int, Cell> MapItem;
+
 private:
+
+	CellMap mp_neighbors;
+
 	void label_core_cell()
 	{
 		value().bIsCore = true;
@@ -365,7 +376,7 @@ private:
 		}
 		if (ceil(double(id) / dimSpace) == range - 1)
 		{
-			dimArr[0] = 0;
+			dimArr[4] = 0;
 		}
 		return dimArr;
 	}
@@ -417,13 +428,27 @@ private:
 	void send_req_to_eps_neighbor()
 	{
 		Message stReqMsg;
-		stReqMsg.type = REQ;
+		// stReqMsg.type = REQ;
 		stReqMsg.iSenderId = id;
 		vector<int> vtEpsNeighborIds = get_eps_neighor_id(id);
+
 		for (int ii = 0; ii <  vtEpsNeighborIds.size(); ii++)
 		{
 			send_message(vtEpsNeighborIds[ii], stReqMsg);
+		}
 
+	}
+
+	void send_updates_to_eps_neighbor()
+	{
+		Message stUpdateMsg;
+		stUpdateMsg.iSenderId = id;
+		stUpdateMsg.stCell = value();
+		vector<int> vtEpsNeighborIds = get_eps_neighor_id(id);
+
+		for (int ii = 0; ii <  vtEpsNeighborIds.size(); ii++)
+		{
+			send_message(vtEpsNeighborIds[ii], stUpdateMsg);
 		}
 
 	}
@@ -496,9 +521,9 @@ private:
 		}
 		else
 		{
-			for (int ii = 0; ii < pRoot->vtpChildren.size(); ii++)
+			for (int ii = 0; ii < pRoot->vtChildren.size(); ii++)
 			{
-				recursive_count(stPnt, pRoot->vtpChildren[ii], ans);
+				recursive_count(stPnt, &(pRoot->vtChildren[ii]), ans);
 			}
 		}
 	}
@@ -518,7 +543,7 @@ private:
 		for (int ii = 0; ii < value().vtAdjList.size(); ii++)
 		{
 			Message stMinMsg;
-			stMinMsg.type = MIN;
+			// stMinMsg.type = MIN;
 			stMinMsg.iSenderId = min;
 
 			send_message(value().vtAdjList[ii], stMinMsg);
@@ -554,180 +579,118 @@ public:
 			}
 			if (value().vtDataPoints.size() >= MinPts)
 			{
-				// value().bIsCore = true;
 				label_core_cell();
 			}
 			else
 			{
 				send_req_to_eps_neighbor();
 			}
-			vote_to_halt();
 		}
 
 		// Step 2: On receiving request message, send cell information to requesters
 		if (step_num() == 2)
 		{
-			Message stInfoMsg;
-			stInfoMsg.type = CELL;
-			stInfoMsg.iSenderId = id;
-			stInfoMsg.stCell = value();
-
-			for (int ii = 0; ii < messages.size(); ii++)
+			if (messages.size() != 0)
 			{
-				if (messages[ii].type == REQ)
+				Message stInfoMsg;
+				// stInfoMsg.type = CELL;
+				stInfoMsg.iSenderId = id;
+				stInfoMsg.stCell = value();
+
+				for (int ii = 0; ii < messages.size(); ii++)
 				{
+					// if (messages[ii].type == REQ)
+					// {
 					send_message(messages[ii].iSenderId, stInfoMsg);
+					// }
 				}
 			}
-			vote_to_halt();
 		}
 
-		// Step 3: On receiving cell info messages, non-core cell contruct tree and do approximate range count for labelling.
+		// Step 3: On receiving cell info messages, non-core cells contruct trees and do approximate range counting for labelling, and also store the cell information
 		if (step_num() == 3)
 		{
-
-			vector<TreeNode> vtNeighborTrees;
-			for (int ii = 0; ii < messages.size(); ii++)
+			if (messages.size() > 0)
 			{
-				if (messages[ii].type == CELL)
+				vector<TreeNode> vtNeighborTrees;
+				for (int ii = 0; ii < messages.size(); ii++)
 				{
 					TreeNode root(messages[ii].stCell);
 					root.Build_tree(&root, messages[ii].stCell);
 					vtNeighborTrees.push_back(root);
-
+					// store neighbor cell info.
+					mp_neighbors.insert( MapItem(messages[ii].iSenderId, messages[ii].stCell));
 				}
-
-			}
-						
-			int iCount;
-			int iTotal;
-			for (int ii = 0; ii < value().vtDataPoints.size(); ii++)
-			{
-				iTotal = 1;
-				for (int jj = 0; jj < vtNeighborTrees.size(); jj++)
+							
+				int iCount;
+				int iTotal;
+				for (int ii = 0; ii < value().vtDataPoints.size(); ii++)
 				{
-					iCount = approximate_range_count(value().vtDataPoints[ii], &(vtNeighborTrees[jj]) );
-					iTotal += iCount;	
-		
+					iTotal = 0;	// include the point itself
+					for (int jj = 0; jj < vtNeighborTrees.size(); jj++)
+					{
+						iCount = approximate_range_count(value().vtDataPoints[ii], &(vtNeighborTrees[jj]) );
+						iTotal += iCount;				
+					}
+
+					if (iTotal >= MinPts)
+					{
+						value().vtDataPoints[ii].bIsCore = true;
+						value().bIsCore = true;
+					}
 				}
 
-				if (iTotal >= MinPts)
+				if (value().bIsCore == true)
 				{
-					value().vtDataPoints[ii].bIsCore = true;
-					value().bIsCore = true;
-					break;
+					send_updates_to_eps_neighbor();
 				}
 			}
-			wakeAll();
+
 		}
 
-		// Build a graph connecting all the core cells
-		// Step 4: Each core cell request its epsilon neighbors' information, so as to do approximate count in the next  step
+
+		// Update stored cell info with receiving messages.
 		if (step_num() == 4)
 		{
-			if (value().bIsCore)
+			if (messages.size() != 0)
 			{
-				send_req_to_eps_neighbor();
-			}
-			else
-			{
-				vote_to_halt();
-			}
-		}
-		// Step 5: Respond to request.
-		if (step_num() == 5)
-		{
-			if (value().bIsCore)
-			{
-				Message stInfoMsg;
-				stInfoMsg.type = CELL;
-				stInfoMsg.iSenderId = id;
-				stInfoMsg.stCell = value();
-
+				CellMap::iterator it;
 				for (int ii = 0; ii < messages.size(); ii++)
 				{
-					if (messages[ii].type == REQ)
+					it = mp_neighbors.find(messages[ii].iSenderId);
+					if (it != mp_neighbors.end())
 					{
-						send_message(messages[ii].iSenderId, stInfoMsg);
+						mp_neighbors[messages[ii].iSenderId] = messages[ii].stCell;
 					}
 				}
-				vote_to_halt();
-			}
-		}
 
-		// Step 6: Core cells receive epsilon neighbors' information, and do approximate count. If count is positive, add the neighbor to adjacency lists
-		if (step_num() == 6)
-		{
-			int iCount = 0;
-			for (int ii = 0; ii < messages.size(); ii++)
-			{
-				if (messages[ii].type == CELL && messages[ii].stCell.bIsCore == true)
-				{
-					TreeNode root(messages[ii].stCell);
-					root.Build_tree(&root, messages[ii].stCell, true);	// Core tree
-					for (int jj = 0; jj < value().vtDataPoints.size(); jj++)
-					{
-						if (value().vtDataPoints[jj].bIsCore)
-						{
-							iCount = approximate_range_count(value().vtDataPoints[jj], &root);
-
-							if (iCount > 0)
-							{
-								value().vtAdjList.push_back(messages[ii].iSenderId);
-								break;
-							}
-						}
-					}
-				}
 			}
+
 			wakeAll();
 		}
 
-		// Step 7 - 10: Send boarder points to a near core cell
-		if (step_num() == 7)
+		// Step 5 - 6: Send boarder points to a near core cell
+		// Non-core cells send boarder points to core cells, and erase neighor cell info afterwards.
+		if (step_num() == 5)
 		{
-			// Non-core cells
-			if (value().bIsCore == false)
+			if (id == 0)
 			{
-				send_req_to_eps_neighbor();
+				vote_to_halt();
+				return;
 			}
-			vote_to_halt();
-
-		}
-
-		if (step_num() == 8)
-		{
-			if (value().bIsCore)
-			{
-				Message stInfoMsg;
-				stInfoMsg.type = CELL;
-				stInfoMsg.iSenderId = id;
-				stInfoMsg.stCell = value();
-
-				for (int ii = 0; ii < messages.size(); ii++)
-				{
-					if (messages[ii].type == REQ)
-					{
-						send_message(messages[ii].iSenderId, stInfoMsg);
-					}
-				}
-			}
-			vote_to_halt();
-		}
-
-		if (step_num() == 9)
-		{
 			if (value().bIsCore == false) // make sure that this is a non-core cell
 			{
 				vector<Point> &vtDataPoints = value().vtDataPoints;
 				vector<pair<int, TreeNode> > vtNeighborTrees;
-				for (int ii = 0; ii < messages.size(); ii++)
+
+				for (CellMap::iterator it = mp_neighbors.begin(); it != mp_neighbors.end(); it++)
 				{
-					if (messages[ii].type == CELL)
+					// Core cells only
+					if (it->second.bIsCore)
 					{
-						TreeNode root(messages[ii].stCell);
-						root.Build_tree(&root, messages[ii].stCell, true);	// Core tree
-						vtNeighborTrees.push_back(make_pair(messages[ii].iSenderId, root));
+						TreeNode root(it->second);
+						root.Build_tree(&root, it->second, true); // Core tree
+						vtNeighborTrees.push_back(make_pair(it->first, root));
 					}
 				}
 
@@ -738,35 +701,136 @@ public:
 					for (int jj = 0; jj < vtNeighborTrees.size(); jj++)
 					{
 						iCount = approximate_range_count(vtDataPoints[ii], &(vtNeighborTrees[jj].second));
-						if (id == 292)
-						{
-							printf("%d %d\n", iCount, vtNeighborTrees[jj].first);
-						}
 						if (iCount > 0)
 						{
 							Message stPntMsg;
-							stPntMsg.type = POINT;
+							// stPntMsg.type = POINT;
 							stPntMsg.stPoint = vtDataPoints[ii];
 							send_message(vtNeighborTrees[jj].first, stPntMsg);
-							vtDataPoints[ii].bIsEarsed = true;
-							
+							vtDataPoints[ii].bIsEarsed = true;						
 							break;
 						}
 					}
 				}
+
+				// Clear the neighbor info map, because it is not needed any more.
+				mp_neighbors.clear();
+
+				// non-core cells vote to halt
+				vote_to_halt();
 			}
-			wakeAll();	//In case that there is no boarder point
+			//wakeAll();	//In case that there is no boarder point
 		}
 
-		if (step_num() == 10)
+		if (step_num() == 6)
 		{
-			if (value().bIsCore)
+			if (value().bIsCore && messages.size() > 0)
 			{
 				for (int ii = 0; ii < messages.size(); ii++)
 				{
-					if (messages[ii].type == POINT)
+					value().vtDataPoints.push_back(messages[ii].stPoint);
+				}
+			}
+			wakeAll();
+		}
+
+
+		// Build a graph connecting all the core cells
+		// Step 7: Each core cell request its epsilon neighbors' information, so as to do approximate count in the next  step
+		if (step_num() == 7)
+		{
+			if (id == 0)
+			{
+				vote_to_halt();
+				return;
+			}
+			if (value().bIsCore)
+			{
+				if (mp_neighbors.size() == 0)
+				{
+					send_req_to_eps_neighbor();
+				}
+
+				else	// perform approximate range counting with stored neighbor info
+				{
+					int iCount = 0;
+					for (CellMap::iterator it = mp_neighbors.begin(); it != mp_neighbors.end(); it++)
 					{
-						value().vtDataPoints.push_back(messages[ii].stPoint);
+						// Core neighbors only
+						if (it->second.bIsCore == true)
+						{
+							TreeNode root(it->second);
+							root.Build_tree(&root, it->second, true); // core tree
+							for (int jj = 0; jj < value().vtDataPoints.size(); jj++)
+							{
+								if (value().vtDataPoints[jj].bIsCore)
+								{
+									iCount = approximate_range_count(value().vtDataPoints[jj], &root);
+
+									if (iCount > 0)
+									{
+										value().vtAdjList.push_back(it->first);
+										break;
+									}
+								}
+							}
+						}
+					}
+
+					// clear neighbor cell info, cause it is not needed any more.
+					mp_neighbors.clear();
+				}
+			}
+			else
+			{
+				// non core cells vote to halt
+				vote_to_halt();
+			}
+		}
+
+		// Step 8: Core cells respond to requests.
+		if (step_num() == 8)
+		{
+			if (value().bIsCore && messages.size() > 0)
+			{
+				Message stInfoMsg;
+				// stInfoMsg.type = CELL;
+				stInfoMsg.iSenderId = id;
+				stInfoMsg.stCell = value();
+
+				for (int ii = 0; ii < messages.size(); ii++)
+				{
+					send_message(messages[ii].iSenderId, stInfoMsg);
+				}
+				//vote_to_halt();
+			}
+		}
+
+		// Step 9: Core cells receive epsilon neighbors' information, and do approximate count. If count is positive, add the neighbor to adjacency lists
+		if (step_num() == 9)
+		{
+			if (messages.size() > 0)
+			{
+				int iCount = 0;
+				for (int ii = 0; ii < messages.size(); ii++)
+				{
+					if (messages[ii].stCell.bIsCore == true)
+					{
+						TreeNode root(messages[ii].stCell);
+						root.Build_tree(&root, messages[ii].stCell, true);	// Core tree
+						for (int jj = 0; jj < value().vtDataPoints.size(); jj++)
+						{
+							if (value().vtDataPoints[jj].bIsCore)
+							{
+								iCount = approximate_range_count(value().vtDataPoints[jj], &root);
+
+								if (iCount > 0)
+								{
+									value().vtAdjList.push_back(messages[ii].iSenderId);
+									break;
+								}
+							}
+						}
 					}
 				}
 			}
@@ -774,8 +838,13 @@ public:
 		}
 
 		// Hashmin: find connected components (clustering)
-		if (step_num() == 11)
+		if (step_num() == 10)
 		{
+			if (id == 0)
+			{
+				vote_to_halt();
+				return;
+			}
 			if (value().bIsCore)
 			{
 				int min = id;
@@ -794,7 +863,7 @@ public:
 			vote_to_halt();
 		}
 
-		if (step_num() > 11)
+		if (step_num() > 10)
 		{
 			int min = messages[0].iSenderId;
 			for (int ii = 1; ii < messages.size(); ii++)
